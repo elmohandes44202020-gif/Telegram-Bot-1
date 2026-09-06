@@ -1,0 +1,4 @@
+python-telegram-bot[job-queue]==21.10
+edge-tts
+python-dotenv
+langdetect
