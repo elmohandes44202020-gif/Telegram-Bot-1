@@ -2,8 +2,8 @@ import os
 import re
 import asyncio
 import logging
-import tempfile
 from pathlib import Path
+from datetime import datetime
 
 import edge_tts
 
@@ -31,7 +31,18 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 DEFAULT_ARABIC_VOICE = "ar-EG-ShakirNeural"
 DEFAULT_ENGLISH_VOICE = "en-US-GuyNeural"
 
-MAX_CHARS_PER_CHUNK = 2500
+# لا يوجد حد إجمالي للنص.
+# هذا الرقم فقط لتقسيم النص داخليًا حتى تستطيع Edge TTS معالجته.
+CHUNK_SIZE = 2500
+
+# مجلد حفظ الملفات المنتجة
+AUDIO_DIR = Path("audio")
+AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ============================================================
+# LOGGING
+# ============================================================
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -42,22 +53,30 @@ logger = logging.getLogger("TelegramTTS")
 
 
 # ============================================================
-# USER SETTINGS
+# USER DATA
 # ============================================================
 
 users = {}
 
 
 def get_user(user_id):
+
     if user_id not in users:
+
         users[user_id] = {
             "text": "",
             "language": "auto",
+
             "voice": DEFAULT_ARABIC_VOICE,
-            "voice_name": "شاكِر — مصري 🇪🇬",
+
+            "voice_name":
+                "شاكِر — مصري 🇪🇬",
+
             "rate": "+0%",
             "pitch": "+0Hz",
             "volume": "+0%",
+
+            "busy": False,
         }
 
     return users[user_id]
@@ -70,43 +89,52 @@ def get_user(user_id):
 def detect_language(text):
 
     arabic = len(
-        re.findall(r"[\u0600-\u06FF]", text)
+        re.findall(
+            r"[\u0600-\u06FF]",
+            text
+        )
     )
 
     english = len(
-        re.findall(r"[A-Za-z]", text)
+        re.findall(
+            r"[A-Za-z]",
+            text
+        )
     )
 
-    if arabic > english:
+    if arabic >= english:
         return "ar"
 
-    if english > arabic:
-        return "en"
+    return "en"
 
-    return "ar"
-
-
-# ============================================================
-# SMART VOICE
-# ============================================================
 
 def choose_auto_voice(text):
 
     language = detect_language(text)
 
     if language == "ar":
-        return DEFAULT_ARABIC_VOICE, "شاكِر — مصري 🇪🇬"
 
-    return DEFAULT_ENGLISH_VOICE, "Guy — أمريكي 🇺🇸"
+        return (
+            DEFAULT_ARABIC_VOICE,
+            "شاكِر — مصري 🇪🇬"
+        )
+
+    return (
+        DEFAULT_ENGLISH_VOICE,
+        "Guy — أمريكي 🇺🇸"
+    )
 
 
 # ============================================================
-# TEXT CHUNKING
+# SMART TEXT SPLITTER
 # ============================================================
 
-def split_text(text, max_chars=MAX_CHARS_PER_CHUNK):
+def split_text(text, max_chars=CHUNK_SIZE):
 
     text = text.strip()
+
+    if not text:
+        return []
 
     if len(text) <= max_chars:
         return [text]
@@ -127,46 +155,74 @@ def split_text(text, max_chars=MAX_CHARS_PER_CHUNK):
         if not paragraph:
             continue
 
-        if len(current) + len(paragraph) + 2 <= max_chars:
+        # الفقرة نفسها صغيرة
+        if len(paragraph) <= max_chars:
 
-            current += (
-                ("\n\n" if current else "")
-                + paragraph
-            )
+            if (
+                current
+                and
+                len(current) + len(paragraph) + 2
+                <= max_chars
+            ):
 
-        else:
-
-            if current:
-                chunks.append(current)
-
-            if len(paragraph) <= max_chars:
-
-                current = paragraph
+                current += "\n\n" + paragraph
 
             else:
 
-                sentences = re.split(
-                    r"(?<=[.!؟!?])\s+",
-                    paragraph
-                )
+                if current:
+                    chunks.append(current)
 
-                current = ""
+                current = paragraph
 
-                for sentence in sentences:
+            continue
 
-                    if len(current) + len(sentence) + 1 <= max_chars:
+        # لو الفقرة كبيرة نقسمها إلى جمل
+        sentences = re.split(
+            r"(?<=[.!؟!?])\s+",
+            paragraph
+        )
 
-                        current += (
-                            (" " if current else "")
-                            + sentence
-                        )
+        for sentence in sentences:
 
-                    else:
+            sentence = sentence.strip()
 
-                        if current:
-                            chunks.append(current)
+            if not sentence:
+                continue
 
-                        current = sentence
+            if len(sentence) > max_chars:
+
+                # تقسيم إجباري للجملة الطويلة جدًا
+                if current:
+                    chunks.append(current)
+                    current = ""
+
+                for i in range(
+                    0,
+                    len(sentence),
+                    max_chars
+                ):
+
+                    chunks.append(
+                        sentence[i:i + max_chars]
+                    )
+
+                continue
+
+            if (
+                current
+                and
+                len(current) + len(sentence) + 1
+                <= max_chars
+            ):
+
+                current += " " + sentence
+
+            else:
+
+                if current:
+                    chunks.append(current)
+
+                current = sentence
 
     if current:
         chunks.append(current)
@@ -175,7 +231,68 @@ def split_text(text, max_chars=MAX_CHARS_PER_CHUNK):
 
 
 # ============================================================
-# MAIN KEYBOARD
+# PROGRESS BAR
+# ============================================================
+
+def progress_bar(current, total, width=12):
+
+    if total <= 0:
+        return "░" * width
+
+    completed = int(
+        width * current / total
+    )
+
+    completed = min(
+        completed,
+        width
+    )
+
+    return (
+        "█" * completed
+        +
+        "░" * (width - completed)
+    )
+
+
+async def update_progress(
+    message,
+    current,
+    total
+):
+
+    percent = int(
+        (current / total) * 100
+    ) if total else 0
+
+    bar = progress_bar(
+        current,
+        total
+    )
+
+    try:
+
+        await message.edit_text(
+
+            "🎙️ *جاري إنشاء الصوت*\n\n"
+
+            f"`{bar}` **{percent}%**\n\n"
+
+            f"🔄 الجزء: **{current}/{total}**\n"
+            f"📊 التقدم: **{percent}%**\n\n"
+
+            "يرجى الانتظار...",
+
+            parse_mode="Markdown"
+
+        )
+
+    except Exception:
+        pass
+
+
+# ============================================================
+# MAIN MENU
 # ============================================================
 
 def main_keyboard():
@@ -187,6 +304,7 @@ def main_keyboard():
                 "📝 النص",
                 callback_data="text_menu"
             ),
+
             InlineKeyboardButton(
                 "🎙️ الصوت",
                 callback_data="voice_menu"
@@ -198,6 +316,7 @@ def main_keyboard():
                 "🌐 اللغة",
                 callback_data="language_menu"
             ),
+
             InlineKeyboardButton(
                 "⚡ السرعة",
                 callback_data="rate_menu"
@@ -209,8 +328,9 @@ def main_keyboard():
                 "🎚️ النبرة",
                 callback_data="pitch_menu"
             ),
+
             InlineKeyboardButton(
-                "🔊 الصوت",
+                "🔊 مستوى الصوت",
                 callback_data="volume_menu"
             ),
         ],
@@ -233,7 +353,25 @@ def main_keyboard():
 
 
 # ============================================================
-# START
+# START BUTTON
+# ============================================================
+
+def start_keyboard():
+
+    return InlineKeyboardMarkup([
+
+        [
+            InlineKeyboardButton(
+                "🚀 بدء البوت",
+                callback_data="start_bot"
+            )
+        ]
+
+    ])
+
+
+# ============================================================
+# START COMMAND
 # ============================================================
 
 async def start(
@@ -241,28 +379,64 @@ async def start(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    user = get_user(
-        update.effective_user.id
-    )
-
     await update.message.reply_text(
 
         "🎙️ *Telegram TTS Pro*\n\n"
 
-        "حوّل النص إلى صوت باستخدام Edge TTS.\n\n"
+        "مرحبًا بك 👋\n\n"
 
-        "📝 أرسل النص مباشرة للبوت، "
-        "ثم استخدم الأزرار للتحكم في الصوت.\n\n"
+        "هذا البوت يحوّل النص إلى صوت باستخدام "
+        "تقنية Edge TTS.\n\n"
 
-        f"🎙️ الصوت الحالي: {user['voice_name']}\n"
-        f"⚡ السرعة: {user['rate']}\n"
-        f"🎚️ النبرة: {user['pitch']}\n\n"
+        "📌 *طريقة الاستخدام:*\n\n"
 
-        "ابدأ بإرسال النص 👇",
+        "1️⃣ اضغط «🚀 بدء البوت».\n"
+        "2️⃣ أرسل النص الذي تريد تحويله.\n"
+        "3️⃣ اختر الصوت المناسب.\n"
+        "4️⃣ اختر اللغة أو اتركها تلقائية.\n"
+        "5️⃣ تحكم في السرعة والنبرة ومستوى الصوت.\n"
+        "6️⃣ اضغط «▶️ توليد الصوت».\n"
+        "7️⃣ انتظر حتى يكتمل شريط الإنجاز.\n"
+        "8️⃣ سيصلك ملف MP3.\n\n"
+
+        "🤖 *اللغة التلقائية:* "
+        "يمكن للبوت اختيار صوت عربي أو إنجليزي "
+        "بحسب النص.\n\n"
+
+        "♾️ *النصوص الطويلة:* "
+        "لا يوجد حد إجمالي لعدد الأحرف؛ "
+        "يتم تقسيم النص داخليًا ومعالجته على أجزاء.\n\n"
+
+        "📁 الملفات المنتجة يتم الاحتفاظ بها على السيرفر.",
+
+        reply_markup=start_keyboard(),
+
+        parse_mode="Markdown"
+
+    )
+
+
+# ============================================================
+# START BOT
+# ============================================================
+
+async def open_bot_menu(query):
+
+    await query.message.edit_text(
+
+        "🚀 *تم تشغيل البوت*\n\n"
+
+        "📝 أرسل النص الذي تريد تحويله إلى صوت.\n\n"
+
+        "بعد إرسال النص ستظهر لك إعدادات "
+        "الصوت والتحكم.\n\n"
+
+        "ابدأ الآن 👇",
 
         reply_markup=main_keyboard(),
 
         parse_mode="Markdown"
+
     )
 
 
@@ -284,98 +458,55 @@ async def receive_text(
         update.effective_user.id
     )
 
+    if user["busy"]:
+
+        await update.message.reply_text(
+            "⏳ هناك عملية تحويل جارية حاليًا.\n"
+            "انتظر حتى تنتهي ثم أرسل نصًا جديدًا."
+        )
+
+        return
+
     user["text"] = text
 
     if user["language"] == "auto":
 
-        voice, name = choose_auto_voice(text)
+        voice, name = choose_auto_voice(
+            text
+        )
 
         user["voice"] = voice
         user["voice_name"] = name
 
-    detected = detect_language(text)
+    language = detect_language(text)
 
     language_name = (
         "العربية 🇪🇬"
-        if detected == "ar"
-        else "English 🇺🇸"
+        if language == "ar"
+        else
+        "English 🇺🇸"
     )
 
     await update.message.reply_text(
 
-        "✅ *تم حفظ النص*\n\n"
+        "✅ *تم استلام النص*\n\n"
 
-        f"📊 الأحرف: {len(text)}\n"
-        f"🌐 اللغة المكتشفة: {language_name}\n"
-        f"🎙️ الصوت: {user['voice_name']}\n\n"
+        f"📊 عدد الأحرف: **{len(text):,}**\n"
+        f"🌐 اللغة المكتشفة: **{language_name}**\n"
+        f"🎙️ الصوت: **{user['voice_name']}**\n\n"
 
-        "يمكنك الآن الضغط على ▶️ توليد الصوت.",
+        "يمكنك الآن تعديل الإعدادات أو "
+        "الضغط على «▶️ توليد الصوت».",
 
         reply_markup=main_keyboard(),
 
         parse_mode="Markdown"
+
     )
 
 
 # ============================================================
-# TEXT MENU
-# ============================================================
-
-def text_keyboard():
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                "🗑️ حذف النص",
-                callback_data="clear_text"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⬅️ رجوع",
-                callback_data="back"
-            )
-        ],
-
-    ])
-
-
-# ============================================================
-# VOICE MENU
-# ============================================================
-
-def voice_keyboard():
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                "🇪🇬 أصوات عربية",
-                callback_data="arabic_voices"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🇺🇸 English Voices",
-                callback_data="english_voices"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⬅️ رجوع",
-                callback_data="back"
-            )
-        ],
-
-    ])
-
-
-# ============================================================
-# ARABIC VOICES
+# VOICES
 # ============================================================
 
 ARABIC_VOICES = {
@@ -437,9 +568,6 @@ ARABIC_VOICES = {
     "ar-QA-MoazNeural":
         "معاذ — قطري 🇶🇦",
 
-    "ar-QA-SayedNeural":
-        "سيد — قطري 🇶🇦",
-
     "ar-SY-LaithNeural":
         "ليث — سوري 🇸🇾",
 
@@ -454,10 +582,6 @@ ARABIC_VOICES = {
 
 }
 
-
-# ============================================================
-# ENGLISH VOICES
-# ============================================================
 
 ENGLISH_VOICES = {
 
@@ -494,16 +618,43 @@ ENGLISH_VOICES = {
 }
 
 
-# ============================================================
-# PAGINATED VOICES
-# ============================================================
+def voice_keyboard():
+
+    return InlineKeyboardMarkup([
+
+        [
+            InlineKeyboardButton(
+                "🇪🇬 الأصوات العربية",
+                callback_data="arabic_voices"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🇺🇸 English Voices",
+                callback_data="english_voices"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "⬅️ رجوع",
+                callback_data="back"
+            )
+        ],
+
+    ])
+
 
 def voice_list_keyboard(
     voices,
+    language,
     page=0
 ):
 
-    items = list(voices.items())
+    items = list(
+        voices.items()
+    )
 
     per_page = 6
 
@@ -520,11 +671,8 @@ def voice_list_keyboard(
         keyboard.append([
 
             InlineKeyboardButton(
-
                 name,
-
                 callback_data=f"selectvoice:{voice}"
-
             )
 
         ])
@@ -537,7 +685,7 @@ def voice_list_keyboard(
 
             InlineKeyboardButton(
                 "⬅️ السابق",
-                callback_data=f"voicepage:{'ar' if voices is ARABIC_VOICES else 'en'}:{page - 1}"
+                callback_data=f"voicepage:{language}:{page - 1}"
             )
 
         )
@@ -548,7 +696,7 @@ def voice_list_keyboard(
 
             InlineKeyboardButton(
                 "التالي ➡️",
-                callback_data=f"voicepage:{'ar' if voices is ARABIC_VOICES else 'en'}:{page + 1}"
+                callback_data=f"voicepage:{language}:{page + 1}"
             )
 
         )
@@ -569,7 +717,7 @@ def voice_list_keyboard(
 
 
 # ============================================================
-# LANGUAGE KEYBOARD
+# LANGUAGE
 # ============================================================
 
 def language_keyboard():
@@ -611,37 +759,35 @@ def language_keyboard():
 
 def rate_keyboard():
 
-    rates = [
+    values = [
+
         ("🐢 -50%", "-50%"),
         ("🐢 -25%", "-25%"),
         ("▶️ طبيعي", "+0%"),
         ("⚡ +25%", "+25%"),
         ("🚀 +50%", "+50%"),
+
     ]
 
-    keyboard = []
+    return InlineKeyboardMarkup([
 
-    for label, value in rates:
-
-        keyboard.append([
-
+        [
             InlineKeyboardButton(
                 label,
                 callback_data=f"rate:{value}"
             )
+        ]
 
-        ])
+        for label, value in values
 
-    keyboard.append([
+    ] + [[
 
         InlineKeyboardButton(
             "⬅️ رجوع",
             callback_data="back"
         )
 
-    ])
-
-    return InlineKeyboardMarkup(keyboard)
+    ]])
 
 
 # ============================================================
@@ -651,36 +797,34 @@ def rate_keyboard():
 def pitch_keyboard():
 
     values = [
+
         ("⬇️ -10Hz", "-10Hz"),
         ("⬇️ -5Hz", "-5Hz"),
         ("🎵 طبيعي", "+0Hz"),
         ("⬆️ +5Hz", "+5Hz"),
         ("⬆️ +10Hz", "+10Hz"),
+
     ]
 
-    keyboard = []
+    return InlineKeyboardMarkup([
 
-    for label, value in values:
-
-        keyboard.append([
-
+        [
             InlineKeyboardButton(
                 label,
                 callback_data=f"pitch:{value}"
             )
+        ]
 
-        ])
+        for label, value in values
 
-    keyboard.append([
+    ] + [[
 
         InlineKeyboardButton(
             "⬅️ رجوع",
             callback_data="back"
         )
 
-    ])
-
-    return InlineKeyboardMarkup(keyboard)
+    ]])
 
 
 # ============================================================
@@ -690,45 +834,41 @@ def pitch_keyboard():
 def volume_keyboard():
 
     values = [
+
         ("🔉 -20%", "-20%"),
         ("🔉 -10%", "-10%"),
         ("🔊 طبيعي", "+0%"),
         ("🔊 +10%", "+10%"),
         ("🔊 +20%", "+20%"),
+
     ]
 
-    keyboard = []
+    return InlineKeyboardMarkup([
 
-    for label, value in values:
-
-        keyboard.append([
-
+        [
             InlineKeyboardButton(
                 label,
                 callback_data=f"volume:{value}"
             )
+        ]
 
-        ])
+        for label, value in values
 
-    keyboard.append([
+    ] + [[
 
         InlineKeyboardButton(
             "⬅️ رجوع",
             callback_data="back"
         )
 
-    ])
-
-    return InlineKeyboardMarkup(keyboard)
+    ]])
 
 
 # ============================================================
 # GENERATE AUDIO
 # ============================================================
 
-async def generate_audio(
-    query
-):
+async def generate_audio(query):
 
     user_id = query.from_user.id
 
@@ -739,48 +879,59 @@ async def generate_audio(
     if not text:
 
         await query.message.reply_text(
-            "❌ لا يوجد نص.\n\nأرسل النص أولًا."
+            "❌ لا يوجد نص.\n\n"
+            "أرسل النص أولًا."
         )
 
         return
 
-    await query.message.reply_text(
+    if user["busy"]:
 
-        "⏳ *جاري إنشاء الصوت...*\n\n"
+        await query.message.reply_text(
+            "⏳ توجد عملية تحويل جارية بالفعل."
+        )
 
-        f"🎙️ {user['voice_name']}\n"
-        f"⚡ السرعة: {user['rate']}\n"
-        f"🎚️ النبرة: {user['pitch']}\n"
-        f"🔊 الصوت: {user['volume']}\n\n"
+        return
 
-        "يرجى الانتظار...",
-
-        parse_mode="Markdown"
-    )
+    user["busy"] = True
 
     chunks = split_text(text)
 
-    output_files = []
+    total = len(chunks)
+
+    progress_message = await query.message.reply_text(
+
+        "🎙️ *بدء عملية التحويل...*\n\n"
+        "`░░░░░░░░░░░░` **0%**\n\n"
+        f"🔄 الجزء: **0/{total}**\n"
+        f"📊 الأحرف: **{len(text):,}**",
+
+        parse_mode="Markdown"
+
+    )
+
+    generated_files = []
 
     try:
 
-        for index, chunk in enumerate(chunks):
+        for index, chunk in enumerate(
+            chunks,
+            start=1
+        ):
 
-            await query.message.reply_text(
-
-                f"🔄 معالجة الجزء "
-                f"{index + 1}/{len(chunks)}..."
-
+            timestamp = datetime.now().strftime(
+                "%Y%m%d_%H%M%S_%f"
             )
 
-            temp = tempfile.NamedTemporaryFile(
-                suffix=".mp3",
-                delete=False
+            filename = (
+                f"tts_{user_id}_"
+                f"{timestamp}_"
+                f"{index:04d}.mp3"
             )
 
-            temp.close()
-
-            output_file = temp.name
+            output_path = (
+                AUDIO_DIR / filename
+            )
 
             communicate = edge_tts.Communicate(
 
@@ -797,16 +948,27 @@ async def generate_audio(
             )
 
             await communicate.save(
-                output_file
+                str(output_path)
             )
 
-            output_files.append(output_file)
+            generated_files.append(
+                output_path
+            )
 
-        # حالة النص القصير
-        if len(output_files) == 1:
+            await update_progress(
+                progress_message,
+                index,
+                total
+            )
+
+        # إرسال الملفات بعد اكتمال التوليد
+        for index, path in enumerate(
+            generated_files,
+            start=1
+        ):
 
             with open(
-                output_files[0],
+                path,
                 "rb"
             ) as audio:
 
@@ -814,53 +976,45 @@ async def generate_audio(
 
                     audio=audio,
 
-                    title="Telegram TTS",
+                    title=(
+                        "Telegram TTS"
+                        if total == 1
+                        else
+                        f"Telegram TTS — الجزء {index}"
+                    ),
 
                     performer="Edge TTS"
 
                 )
 
-        else:
+        # رسالة النجاح النهائية
+        await progress_message.edit_text(
 
-            # إرسال كل جزء للحفاظ على ترتيب النص
-            for index, path in enumerate(output_files):
+            "✅ *اكتملت عملية التحويل بنجاح!*\n\n"
 
-                with open(
-                    path,
-                    "rb"
-                ) as audio:
+            f"📊 إجمالي الأحرف: **{len(text):,}**\n"
+            f"📦 عدد الملفات: **{total}**\n"
+            f"🎙️ الصوت: **{user['voice_name']}**\n"
+            f"⚡ السرعة: **{user['rate']}**\n"
+            f"🎚️ النبرة: **{user['pitch']}**\n\n"
 
-                    await query.message.reply_audio(
-
-                        audio=audio,
-
-                        title=f"Telegram TTS - Part {index + 1}",
-
-                        performer="Edge TTS"
-
-                    )
-
-        await query.message.reply_text(
-
-            "✅ *تم إنشاء الصوت بنجاح!*",
-
-            reply_markup=main_keyboard(),
+            "📁 تم الاحتفاظ بالملفات على السيرفر.",
 
             parse_mode="Markdown"
 
         )
 
-    except Exception as e:
+    except Exception as error:
 
         logger.exception(
             "TTS generation failed"
         )
 
-        await query.message.reply_text(
+        await progress_message.edit_text(
 
-            "❌ حدث خطأ أثناء إنشاء الصوت.\n\n"
+            "❌ *فشل إنشاء الصوت*\n\n"
 
-            f"`{str(e)}`",
+            f"`{str(error)}`",
 
             parse_mode="Markdown"
 
@@ -868,15 +1022,11 @@ async def generate_audio(
 
     finally:
 
-        for path in output_files:
+        # مهم:
+        # لا نحذف الملفات هنا.
+        # الملفات تظل محفوظة داخل AUDIO_DIR.
 
-            try:
-
-                os.remove(path)
-
-            except OSError:
-
-                pass
+        user["busy"] = False
 
 
 # ============================================================
@@ -884,27 +1034,35 @@ async def generate_audio(
 # ============================================================
 
 async def callback_handler(
-
     update: Update,
-
     context: ContextTypes.DEFAULT_TYPE
-
 ):
 
     query = update.callback_query
 
     await query.answer()
 
-    user_id = query.from_user.id
-
-    user = get_user(user_id)
+    user = get_user(
+        query.from_user.id
+    )
 
     data = query.data
 
 
-    # ------------------------------
-    # MAIN
-    # ------------------------------
+    # ----------------------------
+    # START BOT
+    # ----------------------------
+
+    if data == "start_bot":
+
+        await open_bot_menu(query)
+
+        return
+
+
+    # ----------------------------
+    # BACK
+    # ----------------------------
 
     if data == "back":
 
@@ -922,25 +1080,49 @@ async def callback_handler(
         return
 
 
-    # ------------------------------
+    # ----------------------------
     # TEXT
-    # ------------------------------
+    # ----------------------------
 
     if data == "text_menu":
 
         status = (
-            f"✅ {len(user['text'])} حرف"
+
+            f"✅ {len(user['text']):,} حرف"
+
             if user["text"]
+
             else
+
             "❌ لا يوجد نص"
+
         )
 
         await query.message.edit_text(
 
-            f"📝 *النص الحالي*\n\n{status}\n\n"
+            "📝 *النص الحالي*\n\n"
+
+            f"{status}\n\n"
+
             "أرسل نصًا جديدًا لاستبداله.",
 
-            reply_markup=text_keyboard(),
+            reply_markup=InlineKeyboardMarkup([
+
+                [
+                    InlineKeyboardButton(
+                        "🗑️ حذف النص",
+                        callback_data="clear_text"
+                    )
+                ],
+
+                [
+                    InlineKeyboardButton(
+                        "⬅️ رجوع",
+                        callback_data="back"
+                    )
+                ]
+
+            ]),
 
             parse_mode="Markdown"
 
@@ -964,9 +1146,9 @@ async def callback_handler(
         return
 
 
-    # ------------------------------
-    # VOICE
-    # ------------------------------
+    # ----------------------------
+    # VOICE MENU
+    # ----------------------------
 
     if data == "voice_menu":
 
@@ -992,6 +1174,7 @@ async def callback_handler(
 
             reply_markup=voice_list_keyboard(
                 ARABIC_VOICES,
+                "ar",
                 0
             ),
 
@@ -1010,6 +1193,7 @@ async def callback_handler(
 
             reply_markup=voice_list_keyboard(
                 ENGLISH_VOICES,
+                "en",
                 0
             ),
 
@@ -1020,9 +1204,9 @@ async def callback_handler(
         return
 
 
-    # ------------------------------
+    # ----------------------------
     # VOICE PAGE
-    # ------------------------------
+    # ----------------------------
 
     if data.startswith("voicepage:"):
 
@@ -1033,7 +1217,8 @@ async def callback_handler(
         voices = (
             ARABIC_VOICES
             if language == "ar"
-            else ENGLISH_VOICES
+            else
+            ENGLISH_VOICES
         )
 
         await query.message.edit_text(
@@ -1042,6 +1227,7 @@ async def callback_handler(
 
             reply_markup=voice_list_keyboard(
                 voices,
+                language,
                 page
             )
 
@@ -1050,9 +1236,9 @@ async def callback_handler(
         return
 
 
-    # ------------------------------
+    # ----------------------------
     # SELECT VOICE
-    # ------------------------------
+    # ----------------------------
 
     if data.startswith("selectvoice:"):
 
@@ -1070,7 +1256,6 @@ async def callback_handler(
         if name:
 
             user["voice"] = voice
-
             user["voice_name"] = name
 
             await query.message.edit_text(
@@ -1087,15 +1272,15 @@ async def callback_handler(
         return
 
 
-    # ------------------------------
+    # ----------------------------
     # LANGUAGE
-    # ------------------------------
+    # ----------------------------
 
     if data == "language_menu":
 
         await query.message.edit_text(
 
-            "🌐 *طريقة اختيار اللغة*",
+            "🌐 *اختيار اللغة*",
 
             reply_markup=language_keyboard(),
 
@@ -1149,9 +1334,9 @@ async def callback_handler(
         return
 
 
-    # ------------------------------
+    # ----------------------------
     # RATE
-    # ------------------------------
+    # ----------------------------
 
     if data == "rate_menu":
 
@@ -1186,9 +1371,9 @@ async def callback_handler(
         return
 
 
-    # ------------------------------
+    # ----------------------------
     # PITCH
-    # ------------------------------
+    # ----------------------------
 
     if data == "pitch_menu":
 
@@ -1223,9 +1408,9 @@ async def callback_handler(
         return
 
 
-    # ------------------------------
+    # ----------------------------
     # VOLUME
-    # ------------------------------
+    # ----------------------------
 
     if data == "volume_menu":
 
@@ -1260,17 +1445,22 @@ async def callback_handler(
         return
 
 
-    # ------------------------------
+    # ----------------------------
     # SETTINGS
-    # ------------------------------
+    # ----------------------------
 
     if data == "settings":
 
         text_status = (
-            f"{len(user['text'])} حرف"
+
+            f"{len(user['text']):,} حرف"
+
             if user["text"]
+
             else
+
             "لا يوجد"
+
         )
 
         await query.message.edit_text(
@@ -1282,7 +1472,7 @@ async def callback_handler(
             f"🌐 اللغة: {user['language']}\n"
             f"⚡ السرعة: {user['rate']}\n"
             f"🎚️ النبرة: {user['pitch']}\n"
-            f"🔊 الصوت: {user['volume']}",
+            f"🔊 مستوى الصوت: {user['volume']}",
 
             reply_markup=main_keyboard(),
 
@@ -1293,9 +1483,9 @@ async def callback_handler(
         return
 
 
-    # ------------------------------
+    # ----------------------------
     # GENERATE
-    # ------------------------------
+    # ----------------------------
 
     if data == "generate":
 
@@ -1356,8 +1546,7 @@ def main():
 
     application.add_handler(
         MessageHandler(
-            filters.TEXT
-            & ~filters.COMMAND,
+            filters.TEXT & ~filters.COMMAND,
             receive_text
         )
     )
