@@ -7,12 +7,14 @@ from datetime import datetime
 
 import edge_tts
 import av
+from av.audio.resampler import AudioResampler
 
 from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
+
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -56,108 +58,58 @@ logger = logging.getLogger("TelegramTTS")
 
 ARABIC_VOICES = {
 
-    "ar-EG-ShakirNeural":
-        "شاكِر — مصري 🇪🇬",
+    "ar-EG-ShakirNeural": "شاكِر — مصري 🇪🇬",
+    "ar-EG-SalmaNeural": "سلمى — مصرية 🇪🇬",
 
-    "ar-EG-SalmaNeural":
-        "سلمى — مصرية 🇪🇬",
+    "ar-SA-HamedNeural": "حامد — سعودي 🇸🇦",
+    "ar-SA-ZariyahNeural": "زريّة — سعودية 🇸🇦",
 
-    "ar-SA-HamedNeural":
-        "حامد — سعودي 🇸🇦",
+    "ar-AE-HamdanNeural": "حمدان — إماراتي 🇦🇪",
+    "ar-AE-FatimaNeural": "فاطمة — إماراتية 🇦🇪",
 
-    "ar-SA-ZariyahNeural":
-        "زريّة — سعودية 🇸🇦",
+    "ar-IQ-BasselNeural": "باسل — عراقي 🇮🇶",
+    "ar-IQ-RanaNeural": "رنا — عراقية 🇮🇶",
 
-    "ar-AE-HamdanNeural":
-        "حمدان — إماراتي 🇦🇪",
+    "ar-JO-TaimNeural": "تيم — أردني 🇯🇴",
+    "ar-JO-SanaNeural": "سناء — أردنية 🇯🇴",
 
-    "ar-AE-FatimaNeural":
-        "فاطمة — إماراتية 🇦🇪",
+    "ar-KW-FahedNeural": "فهد — كويتي 🇰🇼",
+    "ar-KW-NouraNeural": "نورة — كويتية 🇰🇼",
 
-    "ar-IQ-BasselNeural":
-        "باسل — عراقي 🇮🇶",
+    "ar-LB-RamiNeural": "رامي — لبناني 🇱🇧",
+    "ar-LB-LaylaNeural": "ليلى — لبنانية 🇱🇧",
 
-    "ar-IQ-RanaNeural":
-        "رنا — عراقية 🇮🇶",
+    "ar-MA-JamalNeural": "جمال — مغربي 🇲🇦",
+    "ar-MA-MounaNeural": "منى — مغربية 🇲🇦",
 
-    "ar-JO-TaimNeural":
-        "تيم — أردني 🇯🇴",
+    "ar-OM-AbdullahNeural": "عبدالله — عماني 🇴🇲",
+    "ar-OM-AyshaNeural": "عائشة — عمانية 🇴🇲",
 
-    "ar-JO-SanaNeural":
-        "سناء — أردنية 🇯🇴",
+    "ar-QA-MoazNeural": "معاذ — قطري 🇶🇦",
 
-    "ar-KW-FahedNeural":
-        "فهد — كويتي 🇰🇼",
+    "ar-SY-LaithNeural": "ليث — سوري 🇸🇾",
+    "ar-SY-AmanyNeural": "أماني — سورية 🇸🇾",
 
-    "ar-KW-NouraNeural":
-        "نورة — كويتية 🇰🇼",
-
-    "ar-LB-RamiNeural":
-        "رامي — لبناني 🇱🇧",
-
-    "ar-LB-LaylaNeural":
-        "ليلى — لبنانية 🇱🇧",
-
-    "ar-MA-JamalNeural":
-        "جمال — مغربي 🇲🇦",
-
-    "ar-MA-MounaNeural":
-        "منى — مغربية 🇲🇦",
-
-    "ar-OM-AbdullahNeural":
-        "عبدالله — عماني 🇴🇲",
-
-    "ar-OM-AyshaNeural":
-        "عائشة — عمانية 🇴🇲",
-
-    "ar-QA-MoazNeural":
-        "معاذ — قطري 🇶🇦",
-
-    "ar-SY-LaithNeural":
-        "ليث — سوري 🇸🇾",
-
-    "ar-SY-AmanyNeural":
-        "أماني — سورية 🇸🇾",
-
-    "ar-TN-HediNeural":
-        "هادي — تونسي 🇹🇳",
-
-    "ar-TN-ReemNeural":
-        "ريم — تونسية 🇹🇳",
+    "ar-TN-HediNeural": "هادي — تونسي 🇹🇳",
+    "ar-TN-ReemNeural": "ريم — تونسية 🇹🇳",
 }
 
 
 ENGLISH_VOICES = {
 
-    "en-US-GuyNeural":
-        "Guy — أمريكي 🇺🇸",
+    "en-US-GuyNeural": "Guy — أمريكي 🇺🇸",
+    "en-US-AvaNeural": "Ava — أمريكية 🇺🇸",
+    "en-US-AndrewNeural": "Andrew — أمريكي 🇺🇸",
+    "en-US-EmmaNeural": "Emma — أمريكية 🇺🇸",
 
-    "en-US-AvaNeural":
-        "Ava — أمريكية 🇺🇸",
+    "en-GB-RyanNeural": "Ryan — بريطاني 🇬🇧",
+    "en-GB-SoniaNeural": "Sonia — بريطانية 🇬🇧",
 
-    "en-US-AndrewNeural":
-        "Andrew — أمريكي 🇺🇸",
+    "en-AU-WilliamNeural": "William — أسترالي 🇦🇺",
+    "en-AU-NatashaNeural": "Natasha — أسترالية 🇦🇺",
 
-    "en-US-EmmaNeural":
-        "Emma — أمريكية 🇺🇸",
-
-    "en-GB-RyanNeural":
-        "Ryan — بريطاني 🇬🇧",
-
-    "en-GB-SoniaNeural":
-        "Sonia — بريطانية 🇬🇧",
-
-    "en-AU-WilliamNeural":
-        "William — أسترالي 🇦🇺",
-
-    "en-AU-NatashaNeural":
-        "Natasha — أسترالية 🇦🇺",
-
-    "en-CA-LiamNeural":
-        "Liam — كندي 🇨🇦",
-
-    "en-CA-ClaraNeural":
-        "Clara — كندية 🇨🇦",
+    "en-CA-LiamNeural": "Liam — كندي 🇨🇦",
+    "en-CA-ClaraNeural": "Clara — كندية 🇨🇦",
 }
 
 
@@ -168,21 +120,15 @@ ENGLISH_VOICES = {
 users = {}
 
 
-def default_speaker(
-    voice,
-    voice_name
-):
+def default_speaker(voice, voice_name):
 
     return {
 
         "voice": voice,
-
         "voice_name": voice_name,
 
         "rate": "+0%",
-
         "pitch": "+0Hz",
-
         "volume": "+0%",
     }
 
@@ -193,43 +139,32 @@ def get_user(user_id):
 
         users[user_id] = {
 
-            # الوضع الحالي
             "mode": "normal",
 
-            # النص العادي
             "text": "",
 
             "language": "auto",
 
             "voice": DEFAULT_ARABIC_VOICE,
 
-            "voice_name":
-                "شاكِر — مصري 🇪🇬",
+            "voice_name": "شاكِر — مصري 🇪🇬",
 
             "rate": "+0%",
-
             "pitch": "+0Hz",
-
             "volume": "+0%",
 
-            # نص البودكاست
             "podcast_text": "",
 
-            # المتحدث الأول
-            "speaker1":
-                default_speaker(
-                    "ar-EG-ShakirNeural",
-                    "شاكِر — مصري 🇪🇬"
-                ),
+            "speaker1": default_speaker(
+                "ar-EG-ShakirNeural",
+                "شاكِر — مصري 🇪🇬"
+            ),
 
-            # المتحدث الثاني
-            "speaker2":
-                default_speaker(
-                    "ar-EG-SalmaNeural",
-                    "سلمى — مصرية 🇪🇬"
-                ),
+            "speaker2": default_speaker(
+                "ar-EG-SalmaNeural",
+                "سلمى — مصرية 🇪🇬"
+            ),
 
-            # المتحدث الذي يتم تعديل إعداداته
             "editing_speaker": 1,
 
             "busy": False,
@@ -315,9 +250,7 @@ def split_text(text, max_chars=CHUNK_SIZE):
 
             if (
                 current
-                and
-                len(current) + len(paragraph) + 2
-                <= max_chars
+                and len(current) + len(paragraph) + 2 <= max_chars
             ):
 
                 current += "\n\n" + paragraph
@@ -346,6 +279,7 @@ def split_text(text, max_chars=CHUNK_SIZE):
             if len(sentence) > max_chars:
 
                 if current:
+
                     chunks.append(current)
                     current = ""
 
@@ -356,16 +290,16 @@ def split_text(text, max_chars=CHUNK_SIZE):
                 ):
 
                     chunks.append(
-                        sentence[i:i + max_chars]
+                        sentence[
+                            i:i + max_chars
+                        ]
                     )
 
                 continue
 
             if (
                 current
-                and
-                len(current) + len(sentence) + 1
-                <= max_chars
+                and len(current) + len(sentence) + 1 <= max_chars
             ):
 
                 current += " " + sentence
@@ -442,6 +376,7 @@ async def update_progress(
         )
 
     except Exception:
+
         pass
 
 
@@ -454,6 +389,7 @@ def main_keyboard():
     return InlineKeyboardMarkup([
 
         [
+
             InlineKeyboardButton(
                 "📝 النص",
                 callback_data="text_menu"
@@ -463,9 +399,11 @@ def main_keyboard():
                 "🎙️ الصوت",
                 callback_data="voice_menu"
             ),
+
         ],
 
         [
+
             InlineKeyboardButton(
                 "🌐 اللغة",
                 callback_data="language_menu"
@@ -475,9 +413,11 @@ def main_keyboard():
                 "⚡ السرعة",
                 callback_data="rate_menu"
             ),
+
         ],
 
         [
+
             InlineKeyboardButton(
                 "↕️ النبرة",
                 callback_data="pitch_menu"
@@ -487,34 +427,41 @@ def main_keyboard():
                 "🔊 مستوى الصوت",
                 callback_data="volume_menu"
             ),
+
         ],
 
         [
+
             InlineKeyboardButton(
                 "🎧 البودكاست",
                 callback_data="podcast_menu"
             ),
+
         ],
 
         [
+
             InlineKeyboardButton(
                 "▶️ توليد الصوت",
                 callback_data="generate"
             ),
+
         ],
 
         [
+
             InlineKeyboardButton(
                 "⚙️ الإعدادات الحالية",
                 callback_data="settings"
             ),
+
         ],
 
     ])
 
 
 # ============================================================
-# START BUTTON
+# START KEYBOARD
 # ============================================================
 
 def start_keyboard():
@@ -522,17 +469,486 @@ def start_keyboard():
     return InlineKeyboardMarkup([
 
         [
+
             InlineKeyboardButton(
                 "🚀 بدء البوت",
                 callback_data="start_bot"
             )
+
         ]
 
     ])
 
 
 # ============================================================
-# START COMMAND
+# PODCAST KEYBOARD
+# ============================================================
+
+def podcast_keyboard():
+
+    return InlineKeyboardMarkup([
+
+        [
+
+            InlineKeyboardButton(
+                "🎤 المتحدث الأول",
+                callback_data="speaker1_menu"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "🎤 المتحدث الثاني",
+                callback_data="speaker2_menu"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "⚙️ إعدادات البودكاست",
+                callback_data="podcast_settings"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "▶️ إنشاء البودكاست",
+                callback_data="generate_podcast"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "📝 تغيير الحوار",
+                callback_data="podcast_text"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "⬅️ رجوع",
+                callback_data="back"
+            )
+
+        ],
+
+    ])
+
+
+# ============================================================
+# SPEAKER MENU
+# ============================================================
+
+def speaker_menu_keyboard():
+
+    return InlineKeyboardMarkup([
+
+        [
+
+            InlineKeyboardButton(
+                "🎤 الصوت",
+                callback_data="podcast_voice_menu"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "⚡ السرعة",
+                callback_data="podcast_rate_menu"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "↕️ النبرة",
+                callback_data="podcast_pitch_menu"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "🔊 مستوى الصوت",
+                callback_data="podcast_volume_menu"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "⬅️ رجوع",
+                callback_data="podcast_menu"
+            )
+
+        ],
+
+    ])
+
+
+# ============================================================
+# VOICE MENUS
+# ============================================================
+
+def voice_keyboard():
+
+    return InlineKeyboardMarkup([
+
+        [
+
+            InlineKeyboardButton(
+                "🇪🇬 الأصوات العربية",
+                callback_data="arabic_voices"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "🇺🇸 English Voices",
+                callback_data="english_voices"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "⬅️ رجوع",
+                callback_data="back"
+            )
+
+        ],
+
+    ])
+
+
+def podcast_voice_keyboard():
+
+    return InlineKeyboardMarkup([
+
+        [
+
+            InlineKeyboardButton(
+                "🇪🇬 الأصوات العربية",
+                callback_data="podcast_arabic_voices"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "🇺🇸 English Voices",
+                callback_data="podcast_english_voices"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "⬅️ رجوع",
+                callback_data="podcast_speaker_menu"
+            )
+
+        ],
+
+    ])
+
+
+def voice_list_keyboard(
+    voices,
+    language,
+    page=0,
+    prefix="selectvoice"
+):
+
+    items = list(voices.items())
+
+    per_page = 6
+
+    start = page * per_page
+    end = start + per_page
+
+    current = items[start:end]
+
+    keyboard = []
+
+    for voice, name in current:
+
+        keyboard.append([
+
+            InlineKeyboardButton(
+                name,
+                callback_data=f"{prefix}:{voice}"
+            )
+
+        ])
+
+    navigation = []
+
+    if page > 0:
+
+        navigation.append(
+
+            InlineKeyboardButton(
+                "⬅️ السابق",
+                callback_data=(
+                    f"voicepage:{prefix}:{language}:{page - 1}"
+                )
+            )
+
+        )
+
+    if end < len(items):
+
+        navigation.append(
+
+            InlineKeyboardButton(
+                "التالي ➡️",
+                callback_data=(
+                    f"voicepage:{prefix}:{language}:{page + 1}"
+                )
+            )
+
+        )
+
+    if navigation:
+        keyboard.append(navigation)
+
+    keyboard.append([
+
+        InlineKeyboardButton(
+
+            "⬅️ رجوع",
+
+            callback_data=(
+                "voice_menu"
+                if prefix == "selectvoice"
+                else "podcast_speaker_menu"
+            )
+
+        )
+
+    ])
+
+    return InlineKeyboardMarkup(
+        keyboard
+    )
+
+
+# ============================================================
+# LANGUAGE
+# ============================================================
+
+def language_keyboard():
+
+    return InlineKeyboardMarkup([
+
+        [
+
+            InlineKeyboardButton(
+                "🤖 تلقائي",
+                callback_data="language:auto"
+            )
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "🇪🇬 العربية",
+                callback_data="language:ar"
+            ),
+
+            InlineKeyboardButton(
+                "🇺🇸 English",
+                callback_data="language:en"
+            ),
+
+        ],
+
+        [
+
+            InlineKeyboardButton(
+                "⬅️ رجوع",
+                callback_data="back"
+            )
+
+        ]
+
+    ])
+
+
+# ============================================================
+# RATE
+# ============================================================
+
+def rate_keyboard(prefix="rate"):
+
+    values = [
+
+        ("🐢 -50%", "-50%"),
+        ("🐢 -25%", "-25%"),
+        ("▶️ طبيعي", "+0%"),
+        ("⚡ +25%", "+25%"),
+        ("🚀 +50%", "+50%"),
+
+    ]
+
+    keyboard = []
+
+    for label, value in values:
+
+        keyboard.append([
+
+            InlineKeyboardButton(
+                label,
+                callback_data=f"{prefix}:{value}"
+            )
+
+        ])
+
+    keyboard.append([
+
+        InlineKeyboardButton(
+
+            "⬅️ رجوع",
+
+            callback_data=(
+                "back"
+                if prefix == "rate"
+                else "podcast_speaker_menu"
+            )
+
+        )
+
+    ])
+
+    return InlineKeyboardMarkup(
+        keyboard
+    )
+
+
+# ============================================================
+# PITCH
+# ============================================================
+
+def pitch_keyboard(prefix="pitch"):
+
+    values = [
+
+        ("⬇️ -10Hz", "-10Hz"),
+        ("⬇️ -5Hz", "-5Hz"),
+        ("🎵 طبيعي", "+0Hz"),
+        ("⬆️ +5Hz", "+5Hz"),
+        ("⬆️ +10Hz", "+10Hz"),
+
+    ]
+
+    keyboard = []
+
+    for label, value in values:
+
+        keyboard.append([
+
+            InlineKeyboardButton(
+                label,
+                callback_data=f"{prefix}:{value}"
+            )
+
+        ])
+
+    keyboard.append([
+
+        InlineKeyboardButton(
+
+            "⬅️ رجوع",
+
+            callback_data=(
+                "back"
+                if prefix == "pitch"
+                else "podcast_speaker_menu"
+            )
+
+        )
+
+    ])
+
+    return InlineKeyboardMarkup(
+        keyboard
+    )
+
+
+# ============================================================
+# VOLUME
+# ============================================================
+
+def volume_keyboard(prefix="volume"):
+
+    values = [
+
+        ("🔉 -20%", "-20%"),
+        ("🔉 -10%", "-10%"),
+        ("🔊 طبيعي", "+0%"),
+        ("🔊 +10%", "+10%"),
+        ("🔊 +20%", "+20%"),
+
+    ]
+
+    keyboard = []
+
+    for label, value in values:
+
+        keyboard.append([
+
+            InlineKeyboardButton(
+                label,
+                callback_data=f"{prefix}:{value}"
+            )
+
+        ])
+
+    keyboard.append([
+
+        InlineKeyboardButton(
+
+            "⬅️ رجوع",
+
+            callback_data=(
+                "back"
+                if prefix == "volume"
+                else "podcast_speaker_menu"
+            )
+
+        )
+
+    ])
+
+    return InlineKeyboardMarkup(
+        keyboard
+    )
+
+
+# ============================================================
+# START
 # ============================================================
 
 async def start(
@@ -549,25 +965,8 @@ async def start(
         "هذا البوت يحوّل النص إلى صوت باستخدام "
         "تقنية Edge TTS.\n\n"
 
-        "📌 *طريقة الاستخدام:*\n\n"
-
-        "1️⃣ اضغط «🚀 بدء البوت».\n"
-        "2️⃣ أرسل النص الذي تريد تحويله.\n"
-        "3️⃣ اختر الصوت المناسب.\n"
-        "4️⃣ اختر اللغة أو اتركها تلقائية.\n"
-        "5️⃣ تحكم في السرعة والنبرة ومستوى الصوت.\n"
-        "6️⃣ اضغط «▶️ توليد الصوت».\n"
-        "7️⃣ سيصلك ملف MP3 واحد حتى مع النصوص الطويلة.\n\n"
-
-        "🎧 *البودكاست:*\n"
-        "يمكنك إنشاء حوار بين متحدثين، "
-        "مع إعدادات صوت مستقلة لكل متحدث.\n\n"
-
-        "♾️ *النصوص الطويلة:* "
-        "لا يوجد حد إجمالي لعدد الأحرف؛ "
-        "يتم تقسيم النص داخليًا ثم دمجه مرة أخرى.\n\n"
-
-        "📁 الملفات المنتجة يتم الاحتفاظ بها على السيرفر.",
+        "🎧 يدعم النصوص الطويلة والبودكاست "
+        "بين متحدثين.",
 
         reply_markup=start_keyboard(),
 
@@ -577,7 +976,7 @@ async def start(
 
 
 # ============================================================
-# START BOT
+# OPEN BOT
 # ============================================================
 
 async def open_bot_menu(query):
@@ -594,10 +993,8 @@ async def open_bot_menu(query):
 
         "📝 أرسل النص الذي تريد تحويله إلى صوت.\n\n"
 
-        "بعد إرسال النص ستظهر لك إعدادات "
-        "الصوت والتحكم.\n\n"
-
-        "أو اختر 🎧 *البودكاست* لإنشاء حوار بين متحدثين.\n\n"
+        "أو اختر 🎧 *البودكاست* لإنشاء حوار "
+        "بين متحدثين.\n\n"
 
         "ابدأ الآن 👇",
 
@@ -629,14 +1026,17 @@ async def receive_text(
     if user["busy"]:
 
         await update.message.reply_text(
+
             "⏳ هناك عملية تحويل جارية حاليًا.\n"
-            "انتظر حتى تنتهي ثم أرسل نصًا جديدًا."
+            "انتظر حتى تنتهي."
+
         )
 
         return
 
+
     # --------------------------------------------------------
-    # PODCAST MODE
+    # PODCAST
     # --------------------------------------------------------
 
     if user["mode"] == "podcast":
@@ -644,9 +1044,13 @@ async def receive_text(
         user["podcast_text"] = text
 
         lines = [
+
             line.strip()
+
             for line in text.splitlines()
+
             if line.strip()
+
         ]
 
         if not lines:
@@ -663,15 +1067,11 @@ async def receive_text(
 
             f"💬 عدد المداخلات: **{len(lines)}**\n\n"
 
-            "🔄 التناوب سيكون تلقائيًا:\n"
-            "🎤 المتحدث الأول\n"
-            "🎤 المتحدث الثاني\n"
-            "🎤 المتحدث الأول\n"
-            "🎤 المتحدث الثاني\n"
-            "وهكذا...\n\n"
+            "🔄 سيتم التناوب تلقائيًا بين "
+            "المتحدث الأول والثاني.\n\n"
 
-            "⚠️ كل سطر يمثل مداخلة كاملة لمتحدث واحد.\n"
-            "لا تضع أسماء المتحدثين أو أرقامًا في بداية السطور.",
+            "⚠️ كل سطر يمثل مداخلة كاملة "
+            "لمتحدث واحد.",
 
             reply_markup=podcast_keyboard(),
 
@@ -681,8 +1081,9 @@ async def receive_text(
 
         return
 
+
     # --------------------------------------------------------
-    # NORMAL MODE
+    # NORMAL
     # --------------------------------------------------------
 
     user["text"] = text
@@ -699,10 +1100,15 @@ async def receive_text(
     language = detect_language(text)
 
     language_name = (
+
         "العربية 🇪🇬"
+
         if language == "ar"
+
         else
+
         "English 🇺🇸"
+
     )
 
     await update.message.reply_text(
@@ -714,10 +1120,7 @@ async def receive_text(
         f"🎙️ الصوت: **{user['voice_name']}**\n\n"
 
         "يمكنك الآن تعديل الإعدادات أو "
-        "الضغط على «▶️ توليد الصوت».\n\n"
-
-        "🎧 النص الطويل سيتم دمج جميع أجزائه "
-        "في ملف MP3 واحد.",
+        "الضغط على «▶️ توليد الصوت».",
 
         reply_markup=main_keyboard(),
 
@@ -727,381 +1130,28 @@ async def receive_text(
 
 
 # ============================================================
-# VOICE MENUS
+# SHOW SPEAKER MENU
 # ============================================================
 
-def voice_keyboard():
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                "🇪🇬 الأصوات العربية",
-                callback_data="arabic_voices"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🇺🇸 English Voices",
-                callback_data="english_voices"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⬅️ رجوع",
-                callback_data="back"
-            )
-        ],
-
-    ])
-
-
-def voice_list_keyboard(
-    voices,
-    language,
-    page=0,
-    prefix="selectvoice"
+async def show_speaker_menu(
+    query,
+    speaker_number
 ):
-
-    items = list(
-        voices.items()
-    )
-
-    per_page = 6
-
-    start = page * per_page
-
-    end = start + per_page
-
-    current = items[start:end]
-
-    keyboard = []
-
-    for voice, name in current:
-
-        keyboard.append([
-
-            InlineKeyboardButton(
-                name,
-                callback_data=f"{prefix}:{voice}"
-            )
-
-        ])
-
-    navigation = []
-
-    if page > 0:
-
-        navigation.append(
-
-            InlineKeyboardButton(
-                "⬅️ السابق",
-                callback_data=f"voicepage:{prefix}:{language}:{page - 1}"
-            )
-
-        )
-
-    if end < len(items):
-
-        navigation.append(
-
-            InlineKeyboardButton(
-                "التالي ➡️",
-                callback_data=f"voicepage:{prefix}:{language}:{page + 1}"
-            )
-
-        )
-
-    if navigation:
-        keyboard.append(navigation)
-
-    keyboard.append([
-
-        InlineKeyboardButton(
-            "⬅️ رجوع",
-            callback_data=(
-                "voice_menu"
-                if prefix == "selectvoice"
-                else "podcast_speaker_menu"
-            )
-        )
-
-    ])
-
-    return InlineKeyboardMarkup(keyboard)
-
-
-# ============================================================
-# LANGUAGE
-# ============================================================
-
-def language_keyboard():
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                "🤖 تلقائي",
-                callback_data="language:auto"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🇪🇬 العربية",
-                callback_data="language:ar"
-            ),
-
-            InlineKeyboardButton(
-                "🇺🇸 English",
-                callback_data="language:en"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⬅️ رجوع",
-                callback_data="back"
-            )
-        ]
-
-    ])
-
-
-# ============================================================
-# RATE
-# ============================================================
-
-def rate_keyboard(prefix="rate"):
-
-    values = [
-
-        ("🐢 -50%", "-50%"),
-        ("🐢 -25%", "-25%"),
-        ("▶️ طبيعي", "+0%"),
-        ("⚡ +25%", "+25%"),
-        ("🚀 +50%", "+50%"),
-
-    ]
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                label,
-                callback_data=f"{prefix}:{value}"
-            )
-        ]
-
-        for label, value in values
-
-    ] + [[
-
-        InlineKeyboardButton(
-            "⬅️ رجوع",
-            callback_data=(
-                "back"
-                if prefix == "rate"
-                else "podcast_speaker_menu"
-            )
-        )
-
-    ]])
-
-
-# ============================================================
-# PITCH
-# ============================================================
-
-def pitch_keyboard(prefix="pitch"):
-
-    values = [
-
-        ("⬇️ -10Hz", "-10Hz"),
-        ("⬇️ -5Hz", "-5Hz"),
-        ("🎵 طبيعي", "+0Hz"),
-        ("⬆️ +5Hz", "+5Hz"),
-        ("⬆️ +10Hz", "+10Hz"),
-
-    ]
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                label,
-                callback_data=f"{prefix}:{value}"
-            )
-        ]
-
-        for label, value in values
-
-    ] + [[
-
-        InlineKeyboardButton(
-            "⬅️ رجوع",
-            callback_data=(
-                "back"
-                if prefix == "pitch"
-                else "podcast_speaker_menu"
-            )
-        )
-
-    ]])
-
-
-# ============================================================
-# VOLUME
-# ============================================================
-
-def volume_keyboard(prefix="volume"):
-
-    values = [
-
-        ("🔉 -20%", "-20%"),
-        ("🔉 -10%", "-10%"),
-        ("🔊 طبيعي", "+0%"),
-        ("🔊 +10%", "+10%"),
-        ("🔊 +20%", "+20%"),
-
-    ]
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                label,
-                callback_data=f"{prefix}:{value}"
-            )
-        ]
-
-        for label, value in values
-
-    ] + [[
-
-        InlineKeyboardButton(
-            "⬅️ رجوع",
-            callback_data=(
-                "back"
-                if prefix == "volume"
-                else "podcast_speaker_menu"
-            )
-        )
-
-    ]])
-
-
-# ============================================================
-# PODCAST MAIN MENU
-# ============================================================
-
-def podcast_keyboard():
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                "🎤 المتحدث الأول",
-                callback_data="speaker1_menu"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🎤 المتحدث الثاني",
-                callback_data="speaker2_menu"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⚙️ إعدادات البودكاست",
-                callback_data="podcast_settings"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "▶️ إنشاء البودكاست",
-                callback_data="generate_podcast"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "📝 تغيير الحوار",
-                callback_data="podcast_text"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⬅️ رجوع",
-                callback_data="back"
-            )
-        ],
-
-    ])
-
-
-def speaker_menu_keyboard():
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                "🎤 الصوت",
-                callback_data="podcast_voice_menu"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⚡ السرعة",
-                callback_data="podcast_rate_menu"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "↕️ النبرة",
-                callback_data="podcast_pitch_menu"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🔊 مستوى الصوت",
-                callback_data="podcast_volume_menu"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⬅️ رجوع",
-                callback_data="podcast_menu"
-            )
-        ],
-
-    ])
-
-
-# ============================================================
-# PODCAST SPEAKER MENU
-# ============================================================
-
-async def show_speaker_menu(query, speaker_number):
 
     user = get_user(
         query.from_user.id
     )
 
     speaker = (
+
         user["speaker1"]
+
         if speaker_number == 1
-        else user["speaker2"]
+
+        else
+
+        user["speaker2"]
+
     )
 
     user["editing_speaker"] = speaker_number
@@ -1125,38 +1175,6 @@ async def show_speaker_menu(query, speaker_number):
 
 
 # ============================================================
-# PODCAST VOICE MENU
-# ============================================================
-
-def podcast_voice_keyboard():
-
-    return InlineKeyboardMarkup([
-
-        [
-            InlineKeyboardButton(
-                "🇪🇬 الأصوات العربية",
-                callback_data="podcast_arabic_voices"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🇺🇸 English Voices",
-                callback_data="podcast_english_voices"
-            )
-        ],
-
-        [
-            InlineKeyboardButton(
-                "⬅️ رجوع",
-                callback_data="podcast_speaker_menu"
-            )
-        ],
-
-    ])
-
-
-# ============================================================
 # PODCAST SETTINGS
 # ============================================================
 
@@ -1170,10 +1188,15 @@ async def show_podcast_settings(query):
     s2 = user["speaker2"]
 
     text_status = (
+
         f"{len(user['podcast_text']):,} حرف"
+
         if user["podcast_text"]
+
         else
+
         "لا يوجد حوار"
+
     )
 
     await query.message.edit_text(
@@ -1184,15 +1207,15 @@ async def show_podcast_settings(query):
 
         "🎤 *المتحدث الأول*\n"
         f"🎙️ {s1['voice_name']}\n"
-        f"⚡ السرعة: {s1['rate']}\n"
-        f"↕️ النبرة: {s1['pitch']}\n"
-        f"🔊 الصوت: {s1['volume']}\n\n"
+        f"⚡ {s1['rate']}\n"
+        f"↕️ {s1['pitch']}\n"
+        f"🔊 {s1['volume']}\n\n"
 
         "🎤 *المتحدث الثاني*\n"
         f"🎙️ {s2['voice_name']}\n"
-        f"⚡ السرعة: {s2['rate']}\n"
-        f"↕️ النبرة: {s2['pitch']}\n"
-        f"🔊 الصوت: {s2['volume']}",
+        f"⚡ {s2['rate']}\n"
+        f"↕️ {s2['pitch']}\n"
+        f"🔊 {s2['volume']}",
 
         reply_markup=podcast_keyboard(),
 
@@ -1202,72 +1225,15 @@ async def show_podcast_settings(query):
 
 
 # ============================================================
-# AUDIO GENERATION
-# ============================================================
-
-async def generate_single_tts(
-    text,
-    voice,
-    rate,
-    pitch,
-    volume,
-    user_id,
-    prefix="tts"
-):
-
-    chunks = split_text(text)
-
-    if not chunks:
-        return []
-
-    generated_files = []
-
-    for index, chunk in enumerate(
-        chunks,
-        start=1
-    ):
-
-        timestamp = datetime.now().strftime(
-            "%Y%m%d_%H%M%S_%f"
-        )
-
-        filename = (
-            f"{prefix}_{user_id}_"
-            f"{timestamp}_"
-            f"{index:04d}.mp3"
-        )
-
-        output_path = (
-            AUDIO_DIR / filename
-        )
-
-        communicate = edge_tts.Communicate(
-
-            chunk,
-
-            voice=voice,
-
-            rate=rate,
-
-            pitch=pitch,
-
-            volume=volume
-
-        )
-
-        await communicate.save(
-            str(output_path)
-        )
-
-        generated_files.append(
-            output_path
-        )
-
-    return generated_files
-
-
-# ============================================================
 # PYAV AUDIO MERGER
+# ============================================================
+#
+# مهم:
+# لا نستخدم frame.reformat()
+# لأن بعض إصدارات PyAV لا تدعمه.
+#
+# نستخدم AudioResampler.
+#
 # ============================================================
 
 def merge_audio_files(
@@ -1276,6 +1242,7 @@ def merge_audio_files(
 ):
 
     if not input_files:
+
         raise ValueError(
             "لا توجد ملفات صوتية للدمج."
         )
@@ -1283,9 +1250,13 @@ def merge_audio_files(
     output_path = Path(output_path)
 
     output_container = av.open(
+
         str(output_path),
+
         mode="w",
+
         format="mp3"
+
     )
 
     output_stream = None
@@ -1294,76 +1265,247 @@ def merge_audio_files(
 
         for input_path in input_files:
 
-            input_container = av.open(
-                str(input_path),
-                mode="r"
-            )
+            input_container = None
 
             try:
 
-                for stream in input_container.streams.audio:
+                input_container = av.open(
 
-                    if output_stream is None:
+                    str(input_path),
 
-                        sample_rate = (
-                            stream.rate
-                            or 24000
+                    mode="r"
+
+                )
+
+
+                audio_stream = None
+
+                for stream in input_container.streams:
+
+                    if stream.type == "audio":
+
+                        audio_stream = stream
+
+                        break
+
+
+                if audio_stream is None:
+
+                    continue
+
+
+                # --------------------------------------------
+                # إنشاء ملف الإخراج
+                # --------------------------------------------
+
+                if output_stream is None:
+
+                    sample_rate = (
+
+                        audio_stream.rate
+
+                        or
+
+                        24000
+
+                    )
+
+
+                    output_stream = (
+
+                        output_container.add_stream(
+
+                            "libmp3lame",
+
+                            rate=sample_rate
+
                         )
 
-                        output_stream = (
-                            output_container.add_stream(
-                                "libmp3lame",
-                                rate=sample_rate
-                            )
-                        )
+                    )
+
+
+                    try:
 
                         output_stream.layout = "mono"
 
-                    for frame in input_container.decode(
-                        stream
-                    ):
+                    except Exception:
 
-                        frame = frame.reformat(
-                            format="s16",
-                            layout="mono",
-                            rate=output_stream.rate
+                        pass
+
+
+                # --------------------------------------------
+                # AUDIO RESAMPLER
+                # --------------------------------------------
+
+                resampler = AudioResampler(
+
+                    format="s16",
+
+                    layout="mono",
+
+                    rate=output_stream.rate
+
+                )
+
+
+                # --------------------------------------------
+                # DECODE AUDIO
+                # --------------------------------------------
+
+                for frame in input_container.decode(
+
+                    audio_stream
+
+                ):
+
+
+                    converted = (
+
+                        resampler.resample(
+
+                            frame
+
                         )
 
+                    )
+
+
+                    if converted is None:
+
+                        continue
+
+
+                    # قد يرجع Frame واحد
+                    if not isinstance(
+
+                        converted,
+
+                        list
+
+                    ):
+
+                        converted = [
+
+                            converted
+
+                        ]
+
+
+                    # ----------------------------------------
+                    # ENCODE
+                    # ----------------------------------------
+
+                    for converted_frame in converted:
+
+
                         for packet in output_stream.encode(
-                            frame
+
+                            converted_frame
+
                         ):
 
+
                             output_container.mux(
+
                                 packet
+
                             )
 
-                    break
+
+                # --------------------------------------------
+                # FLUSH RESAMPLER
+                # --------------------------------------------
+
+                try:
+
+                    remaining = (
+
+                        resampler.resample(
+
+                            None
+
+                        )
+
+                    )
+
+
+                    if remaining:
+
+                        if not isinstance(
+
+                            remaining,
+
+                            list
+
+                        ):
+
+                            remaining = [
+
+                                remaining
+
+                            ]
+
+
+                        for remaining_frame in remaining:
+
+
+                            for packet in output_stream.encode(
+
+                                remaining_frame
+
+                            ):
+
+
+                                output_container.mux(
+
+                                    packet
+
+                                )
+
+                except Exception:
+
+                    pass
+
 
             finally:
 
-                input_container.close()
+                if input_container:
+
+                    input_container.close()
+
+
+        # ----------------------------------------------------
+        # FLUSH MP3 ENCODER
+        # ----------------------------------------------------
 
         if output_stream is None:
 
             raise ValueError(
+
                 "لم يتم العثور على مسار صوتي صالح."
+
             )
+
 
         for packet in output_stream.encode():
 
             output_container.mux(
+
                 packet
+
             )
+
 
     finally:
 
         output_container.close()
 
+
     return output_path
 
 
 # ============================================================
-# NORMAL TTS GENERATION
+# NORMAL AUDIO GENERATION
 # ============================================================
 
 async def generate_audio(query):
@@ -1377,19 +1519,25 @@ async def generate_audio(query):
     if not text:
 
         await query.message.reply_text(
+
             "❌ لا يوجد نص.\n\n"
             "أرسل النص أولًا."
+
         )
 
         return
+
 
     if user["busy"]:
 
         await query.message.reply_text(
+
             "⏳ توجد عملية تحويل جارية بالفعل."
+
         )
 
         return
+
 
     user["busy"] = True
 
@@ -1417,27 +1565,36 @@ async def generate_audio(query):
     try:
 
         # ----------------------------------------------------
-        # توليد كل الأجزاء
+        # GENERATE CHUNKS
         # ----------------------------------------------------
 
         for index, chunk in enumerate(
+
             chunks,
+
             start=1
+
         ):
 
+
             timestamp = datetime.now().strftime(
+
                 "%Y%m%d_%H%M%S_%f"
+
             )
 
+
             filename = (
+
                 f"tts_{user_id}_"
                 f"{timestamp}_"
                 f"{index:04d}.mp3"
+
             )
 
-            output_path = (
-                AUDIO_DIR / filename
-            )
+
+            output_path = AUDIO_DIR / filename
+
 
             communicate = edge_tts.Communicate(
 
@@ -1453,55 +1610,90 @@ async def generate_audio(query):
 
             )
 
+
             await communicate.save(
+
                 str(output_path)
+
             )
+
 
             generated_files.append(
+
                 output_path
+
             )
+
 
             await update_progress(
+
                 progress_message,
+
                 index,
+
                 total
+
             )
 
+
         # ----------------------------------------------------
-        # دمج الأجزاء
+        # FINAL FILE
         # ----------------------------------------------------
 
         timestamp = datetime.now().strftime(
+
             "%Y%m%d_%H%M%S_%f"
+
         )
+
 
         final_path = (
+
             AUDIO_DIR
+
             /
+
             f"tts_{user_id}_{timestamp}_FINAL.mp3"
+
         )
+
 
         await update_progress(
+
             progress_message,
+
             total,
+
             total,
+
             "🎧 جاري دمج الأجزاء في ملف واحد"
+
         )
+
 
         await asyncio.to_thread(
+
             merge_audio_files,
+
             generated_files,
+
             final_path
+
         )
 
+
         # ----------------------------------------------------
-        # إرسال ملف واحد
+        # SEND
         # ----------------------------------------------------
 
         with open(
+
             final_path,
+
             "rb"
+
         ) as audio:
+
 
             await query.message.reply_audio(
 
@@ -1512,6 +1704,7 @@ async def generate_audio(query):
                 performer="Edge TTS"
 
             )
+
 
         await progress_message.edit_text(
 
@@ -1524,28 +1717,39 @@ async def generate_audio(query):
             f"↕️ النبرة: **{user['pitch']}**\n"
             f"🔊 مستوى الصوت: **{user['volume']}**\n\n"
 
-            "🎧 تم دمج جميع الأجزاء في ملف MP3 واحد.\n"
-            "📁 تم الاحتفاظ بجميع الملفات على السيرفر.",
+            "🎧 تم دمج جميع الأجزاء في ملف MP3 واحد.",
 
             parse_mode="Markdown"
 
         )
+
 
     except Exception as error:
 
+
         logger.exception(
+
             "TTS generation failed"
-        )
-
-        await progress_message.edit_text(
-
-            "❌ *فشل إنشاء الصوت*\n\n"
-
-            f"`{str(error)}`",
-
-            parse_mode="Markdown"
 
         )
+
+
+        try:
+
+            await progress_message.edit_text(
+
+                "❌ *فشل إنشاء الصوت*\n\n"
+
+                f"`{str(error)}`",
+
+                parse_mode="Markdown"
+
+            )
+
+        except Exception:
+
+            pass
+
 
     finally:
 
@@ -1564,6 +1768,7 @@ async def generate_podcast(query):
 
     text = user["podcast_text"]
 
+
     if not text:
 
         await query.message.reply_text(
@@ -1575,32 +1780,45 @@ async def generate_podcast(query):
 
         return
 
+
     if user["busy"]:
 
         await query.message.reply_text(
+
             "⏳ توجد عملية تحويل جارية بالفعل."
+
         )
 
         return
 
+
     lines = [
+
         line.strip()
+
         for line in text.splitlines()
+
         if line.strip()
+
     ]
+
 
     if not lines:
 
         await query.message.reply_text(
+
             "❌ الحوار فارغ."
+
         )
 
         return
+
 
     user["busy"] = True
 
     s1 = user["speaker1"]
     s2 = user["speaker2"]
+
 
     progress_message = await query.message.reply_text(
 
@@ -1616,24 +1834,31 @@ async def generate_podcast(query):
 
     )
 
+
     all_audio_files = []
+
 
     try:
 
         total_lines = len(lines)
 
+
         # ----------------------------------------------------
-        # كل سطر = مداخلة كاملة
+        # GENERATE EACH LINE
         # ----------------------------------------------------
 
         for index, line in enumerate(
+
             lines,
+
             start=1
+
         ):
 
-            # التناوب:
-            # 1 = المتحدث الأول
-            # 2 = المتحدث الثاني
+
+            # ----------------------------------------------
+            # SPEAKER ALTERNATION
+            # ----------------------------------------------
 
             if index % 2 == 1:
 
@@ -1647,33 +1872,43 @@ async def generate_podcast(query):
 
                 speaker_number = 2
 
-            # ------------------------------------------------
-            # تقسيم المداخلة الطويلة داخليًا
-            # مع الحفاظ على نفس المتحدث
-            # ------------------------------------------------
+
+            # ----------------------------------------------
+            # SPLIT LONG LINE
+            # ----------------------------------------------
 
             chunks = split_text(line)
 
+
             for chunk_index, chunk in enumerate(
+
                 chunks,
+
                 start=1
+
             ):
 
+
                 timestamp = datetime.now().strftime(
+
                     "%Y%m%d_%H%M%S_%f"
+
                 )
 
+
                 filename = (
+
                     f"podcast_{user_id}_"
                     f"speaker{speaker_number}_"
                     f"{index:04d}_"
                     f"{chunk_index:04d}_"
                     f"{timestamp}.mp3"
+
                 )
 
-                output_path = (
-                    AUDIO_DIR / filename
-                )
+
+                output_path = AUDIO_DIR / filename
+
 
                 communicate = edge_tts.Communicate(
 
@@ -1689,56 +1924,92 @@ async def generate_podcast(query):
 
                 )
 
+
                 await communicate.save(
+
                     str(output_path)
+
                 )
+
 
                 all_audio_files.append(
+
                     output_path
+
                 )
 
+
             await update_progress(
+
                 progress_message,
+
                 index,
+
                 total_lines,
+
                 "🎧 جاري إنشاء البودكاست"
+
             )
 
+
         # ----------------------------------------------------
-        # دمج كل المقاطع بالترتيب
+        # FINAL PODCAST
         # ----------------------------------------------------
 
         timestamp = datetime.now().strftime(
+
             "%Y%m%d_%H%M%S_%f"
+
         )
+
 
         final_path = (
+
             AUDIO_DIR
+
             /
+
             f"podcast_{user_id}_{timestamp}_FINAL.mp3"
+
         )
+
 
         await update_progress(
+
             progress_message,
+
             total_lines,
+
             total_lines,
+
             "🎧 جاري دمج البودكاست"
+
         )
+
 
         await asyncio.to_thread(
+
             merge_audio_files,
+
             all_audio_files,
+
             final_path
+
         )
 
+
         # ----------------------------------------------------
-        # إرسال ملف واحد فقط
+        # SEND PODCAST
         # ----------------------------------------------------
 
         with open(
+
             final_path,
+
             "rb"
+
         ) as audio:
+
 
             await query.message.reply_audio(
 
@@ -1749,6 +2020,7 @@ async def generate_podcast(query):
                 performer="Edge TTS"
 
             )
+
 
         await progress_message.edit_text(
 
@@ -1766,28 +2038,39 @@ async def generate_podcast(query):
             f"↕️ نبرة الثاني: **{s2['pitch']}**\n"
             f"🔊 صوت الثاني: **{s2['volume']}**\n\n"
 
-            "🎧 تم دمج الحوار كاملًا في ملف MP3 واحد.\n"
-            "📁 تم الاحتفاظ بالملفات على السيرفر.",
+            "🎧 تم دمج الحوار كاملًا في ملف MP3 واحد.",
 
             parse_mode="Markdown"
 
         )
+
 
     except Exception as error:
 
+
         logger.exception(
+
             "Podcast generation failed"
-        )
-
-        await progress_message.edit_text(
-
-            "❌ *فشل إنشاء البودكاست*\n\n"
-
-            f"`{str(error)}`",
-
-            parse_mode="Markdown"
 
         )
+
+
+        try:
+
+            await progress_message.edit_text(
+
+                "❌ *فشل إنشاء البودكاست*\n\n"
+
+                f"`{str(error)}`",
+
+                parse_mode="Markdown"
+
+            )
+
+        except Exception:
+
+            pass
+
 
     finally:
 
@@ -1865,6 +2148,7 @@ async def callback_handler(
 
         )
 
+
         await query.message.edit_text(
 
             "📝 *النص الحالي*\n\n"
@@ -1876,17 +2160,21 @@ async def callback_handler(
             reply_markup=InlineKeyboardMarkup([
 
                 [
+
                     InlineKeyboardButton(
                         "🗑️ حذف النص",
                         callback_data="clear_text"
                     )
+
                 ],
 
                 [
+
                     InlineKeyboardButton(
                         "⬅️ رجوع",
                         callback_data="back"
                     )
+
                 ]
 
             ]),
@@ -1973,10 +2261,6 @@ async def callback_handler(
         return
 
 
-    # ========================================================
-    # NORMAL VOICE PAGE
-    # ========================================================
-
     if data.startswith("voicepage:selectvoice:"):
 
         _, _, language, page = data.split(":")
@@ -1984,11 +2268,17 @@ async def callback_handler(
         page = int(page)
 
         voices = (
+
             ARABIC_VOICES
+
             if language == "ar"
+
             else
+
             ENGLISH_VOICES
+
         )
+
 
         await query.message.edit_text(
 
@@ -2006,10 +2296,6 @@ async def callback_handler(
         return
 
 
-    # ========================================================
-    # SELECT NORMAL VOICE
-    # ========================================================
-
     if data.startswith("selectvoice:"):
 
         voice = data.split(
@@ -2017,16 +2303,23 @@ async def callback_handler(
             1
         )[1]
 
+
         name = (
+
             ARABIC_VOICES.get(voice)
+
             or
+
             ENGLISH_VOICES.get(voice)
+
         )
+
 
         if name:
 
             user["voice"] = voice
             user["voice_name"] = name
+
 
             await query.message.edit_text(
 
@@ -2068,7 +2361,9 @@ async def callback_handler(
             1
         )[1]
 
+
         user["language"] = language
+
 
         if language == "auto":
 
@@ -2081,17 +2376,21 @@ async def callback_handler(
                 user["voice"] = voice
                 user["voice_name"] = name
 
+
             message = (
                 "🤖 تم تفعيل الاختيار التلقائي."
             )
+
 
         elif language == "ar":
 
             message = "🇪🇬 تم اختيار العربية."
 
+
         else:
 
             message = "🇺🇸 English selected."
+
 
         await query.message.edit_text(
 
@@ -2132,6 +2431,7 @@ async def callback_handler(
             1
         )[1]
 
+
         await query.message.edit_text(
 
             f"⚡ السرعة: {user['rate']}",
@@ -2170,6 +2470,7 @@ async def callback_handler(
             ":",
             1
         )[1]
+
 
         await query.message.edit_text(
 
@@ -2210,6 +2511,7 @@ async def callback_handler(
             1
         )[1]
 
+
         await query.message.edit_text(
 
             f"🔊 مستوى الصوت: {user['volume']}",
@@ -2238,6 +2540,7 @@ async def callback_handler(
             "لا يوجد"
 
         )
+
 
         await query.message.edit_text(
 
@@ -2280,6 +2583,7 @@ async def callback_handler(
 
         user["mode"] = "podcast"
 
+
         await query.message.edit_text(
 
             "🎧 *وضع البودكاست*\n\n"
@@ -2288,12 +2592,6 @@ async def callback_handler(
 
             "📝 أرسل الحوار بحيث يكون كل سطر "
             "مداخلة كاملة لمتحدث واحد.\n\n"
-
-            "مثال:\n"
-            "السطر الأول للمتحدث الأول.\n"
-            "السطر الثاني للمتحدث الثاني.\n"
-            "السطر الثالث للمتحدث الأول.\n"
-            "السطر الرابع للمتحدث الثاني.\n\n"
 
             "🔄 التناوب يتم تلقائيًا.\n"
             "🚫 لا تكتب أسماء المتحدثين.\n"
@@ -2315,6 +2613,7 @@ async def callback_handler(
     if data == "podcast_text":
 
         user["mode"] = "podcast"
+
 
         await query.message.edit_text(
 
@@ -2369,12 +2668,15 @@ async def callback_handler(
 
 
     # ========================================================
-    # PODCAST SPEAKER MENU BACK
+    # PODCAST SPEAKER BACK
     # ========================================================
 
     if data == "podcast_speaker_menu":
 
-        speaker_number = user["editing_speaker"]
+        speaker_number = user[
+            "editing_speaker"
+        ]
+
 
         await show_speaker_menu(
             query,
@@ -2444,22 +2746,25 @@ async def callback_handler(
         return
 
 
-    # ========================================================
-    # PODCAST VOICE PAGE
-    # ========================================================
-
     if data.startswith("voicepage:pvoice:"):
 
         _, _, language, page = data.split(":")
 
         page = int(page)
 
+
         voices = (
+
             ARABIC_VOICES
+
             if language == "ar"
+
             else
+
             ENGLISH_VOICES
+
         )
+
 
         await query.message.edit_text(
 
@@ -2477,10 +2782,6 @@ async def callback_handler(
         return
 
 
-    # ========================================================
-    # SELECT PODCAST VOICE
-    # ========================================================
-
     if data.startswith("pvoice:"):
 
         voice = data.split(
@@ -2488,29 +2789,49 @@ async def callback_handler(
             1
         )[1]
 
+
         name = (
+
             ARABIC_VOICES.get(voice)
+
             or
+
             ENGLISH_VOICES.get(voice)
+
         )
+
 
         if name:
 
-            speaker_number = user["editing_speaker"]
+            speaker_number = user[
+                "editing_speaker"
+            ]
+
 
             speaker = (
+
                 user["speaker1"]
+
                 if speaker_number == 1
-                else user["speaker2"]
+
+                else
+
+                user["speaker2"]
+
             )
+
 
             speaker["voice"] = voice
 
             speaker["voice_name"] = name
 
+
             await show_speaker_menu(
+
                 query,
+
                 speaker_number
+
             )
 
         return
@@ -2544,19 +2865,34 @@ async def callback_handler(
             1
         )[1]
 
-        speaker_number = user["editing_speaker"]
+
+        speaker_number = user[
+            "editing_speaker"
+        ]
+
 
         speaker = (
+
             user["speaker1"]
+
             if speaker_number == 1
-            else user["speaker2"]
+
+            else
+
+            user["speaker2"]
+
         )
+
 
         speaker["rate"] = value
 
+
         await show_speaker_menu(
+
             query,
+
             speaker_number
+
         )
 
         return
@@ -2590,19 +2926,34 @@ async def callback_handler(
             1
         )[1]
 
-        speaker_number = user["editing_speaker"]
+
+        speaker_number = user[
+            "editing_speaker"
+        ]
+
 
         speaker = (
+
             user["speaker1"]
+
             if speaker_number == 1
-            else user["speaker2"]
+
+            else
+
+            user["speaker2"]
+
         )
+
 
         speaker["pitch"] = value
 
+
         await show_speaker_menu(
+
             query,
+
             speaker_number
+
         )
 
         return
@@ -2636,19 +2987,34 @@ async def callback_handler(
             1
         )[1]
 
-        speaker_number = user["editing_speaker"]
+
+        speaker_number = user[
+            "editing_speaker"
+        ]
+
 
         speaker = (
+
             user["speaker1"]
+
             if speaker_number == 1
-            else user["speaker2"]
+
+            else
+
+            user["speaker2"]
+
         )
+
 
         speaker["volume"] = value
 
+
         await show_speaker_menu(
+
             query,
+
             speaker_number
+
         )
 
         return
@@ -2692,8 +3058,11 @@ async def error_handler(
 ):
 
     logger.exception(
+
         "Unhandled exception",
+
         exc_info=context.error
+
     )
 
 
@@ -2706,51 +3075,88 @@ def main():
     if not BOT_TOKEN:
 
         raise RuntimeError(
+
             "BOT_TOKEN غير موجود في Faable Variables"
+
         )
 
+
     logger.info(
+
         "Starting Telegram TTS Pro..."
+
     )
+
 
     application = (
+
         Application.builder()
+
         .token(BOT_TOKEN)
+
         .build()
+
     )
 
+
     application.add_handler(
+
         CommandHandler(
+
             "start",
+
             start
+
         )
+
     )
 
+
     application.add_handler(
+
         CallbackQueryHandler(
+
             callback_handler
+
         )
+
     )
 
+
     application.add_handler(
+
         MessageHandler(
+
             filters.TEXT & ~filters.COMMAND,
+
             receive_text
+
         )
+
     )
+
 
     application.add_error_handler(
+
         error_handler
+
     )
+
 
     logger.info(
+
         "Telegram TTS Pro is running."
+
     )
 
+
     application.run_polling(
+
         allowed_updates=Update.ALL_TYPES
+
     )
 
 
 if __name__ == "__main__":
+
     main()
